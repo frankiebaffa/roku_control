@@ -54,7 +54,9 @@ fn send(ip_opt: &Option<impl AsRef<str>>, key_ref: impl AsRef<str>) {
             let ip = ip_ref.as_ref();
             let url = format!("http://{}:8060{}", ip, keypath);
             print(format!("Sending {}", url)).unwrap();
-            match Client::new().get(&url).send() {
+            match Client::new().get(&url).timeout(
+                Duration::from_millis(2000)
+            ).send() {
                 Ok(_) => {
                     print(format!("Complete: {}", url)).unwrap();
                 },
