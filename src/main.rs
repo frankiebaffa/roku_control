@@ -35,7 +35,10 @@ use {
             Arc,
             Mutex,
         },
-        thread::spawn as thread_spawn,
+        thread::{
+            sleep as thread_sleep,
+            spawn as thread_spawn,
+        },
         time::Duration,
     },
 };
@@ -46,93 +49,31 @@ fn print(msg: impl AsRef<str>) -> CrosstermResult<()> {
     execute!(get_stdout(), MoveToNextLine(1))?;
     Ok(())
 }
-fn send(ip_opt: &Option<impl AsRef<str>>, key_ref: impl AsRef<str>) {
-    let key = key_ref.as_ref();
-    let keypath = format!("/keypress/{}", key);
-    match ip_opt {
-        Some(ip_ref) => {
-            let ip = ip_ref.as_ref();
-            let url = format!("http://{}:8060{}", ip, keypath);
-            print(format!("Sending {}", url)).unwrap();
-            match Client::new().get(&url).timeout(
-                Duration::from_millis(2000)
-            ).send() {
-                Ok(_) => {
-                    print(format!("Complete: {}", url)).unwrap();
-                },
-                Err(e) => {
-                    print(format!("Error:    {} | {}", url, e)).unwrap();
-                },
-            }
-        },
-        None => {
-            print(keypath).unwrap();
-        },
-    }
+#[derive(clap::Parser)]
+struct TestArgs {
+    #[clap(short, long)]
+    delay: Option<u64>,
 }
-struct Command {
-    key: String,
-    character: KeyCode,
+#[derive(clap::Parser)]
+struct ConnectArgs {
+    #[clap(short, long)]
+    ip: String,
+    #[clap(short, long)]
+    timeout: Option<u64>,
 }
-impl Command {
-    fn new(key: String, character: KeyCode) -> Self {
-        Self { key, character, }
-    }
-}
-struct Commands {
-    commands: Vec<Command>,
-}
-impl Commands {
-    fn new() -> Self {
-        Self { commands: Vec::new(), }
-    }
-    fn add(&mut self, key_ref: impl AsRef<str>, character: KeyCode) {
-        let key = key_ref.as_ref().to_string();
-        self.commands.push(Command::new(key, character));
-    }
-    fn init(&mut self) {
-        self.add("Home", KeyCode::Char('g'));
-        self.add("Left", KeyCode::Char('h'));
-        self.add("Rev", KeyCode::Char('H'));
-        self.add("KeyboardMode", KeyCode::Char('i'));
-        self.add("InstantReplay", KeyCode::Char('I'));
-        self.add("Down", KeyCode::Char('j'));
-        self.add("ChannelDown", KeyCode::Char('J'));
-        self.add("Up", KeyCode::Char('k'));
-        self.add("ChannelUp", KeyCode::Char('K'));
-        self.add("Fwd", KeyCode::Char('L'));
-        self.add("Right", KeyCode::Char('l'));
-        self.add("Mute", KeyCode::Char('m'));
-        self.add("PowerOn", KeyCode::Char('p'));
-        self.add("PowerOff", KeyCode::Char('P'));
-        self.add("Search", KeyCode::Char('s'));
-        self.add("Quit", KeyCode::Char('q'));
-        self.add("HardQuit", KeyCode::Char('Q'));
-        self.add("VolumeDown", KeyCode::Char('v'));
-        self.add("VolumeUp", KeyCode::Char('V'));
-        self.add("Select", KeyCode::Enter);
-        self.add("Play", KeyCode::Char(' '));
-        self.add("Pause", KeyCode::Char('|'));
-        self.add("Help", KeyCode::Char('?'));
-        self.add("Info", KeyCode::Char('*'));
-        self.add("Search", KeyCode::Char('s'));
-    }
-    fn show_help(&self) {
-        self.commands.iter().for_each(|cmd| {
-            print(format!("{} | \"{:?}\"", cmd.key, cmd.character)).unwrap();
-        });
-    }
+#[derive(clap::Subcommand)]
+enum Mode {
+    Test(TestArgs),
+    Connect(ConnectArgs),
 }
 #[derive(Parser)]
 struct Args {
-    #[clap(short, long)]
-    ip: Option<String>,
+    #[clap(subcommand)]
+    mode: Mode,
 }
 fn main() -> CrosstermResult<()> {
     const TICK: u64 = 200;
     let args = Args::parse();
-    let mut cmds = Commands::new();
-    cmds.init();
     execute!(get_stdout(), EnterAlternateScreen)?;
     execute!(get_stdout(), Hide)?;
     enable_raw_mode()?;
@@ -142,7 +83,6 @@ fn main() -> CrosstermResult<()> {
         let keypusher_keys = keys.clone();
         let mut initial = true;
         thread_spawn(move || {
-            cmds.show_help();
             loop {
                 if poll(Duration::from_millis(TICK)).unwrap() {
                     match read().unwrap() {
@@ -158,15 +98,100 @@ fn main() -> CrosstermResult<()> {
                             ).unwrap();
                             let key;
                             if !keyboard_mode {
-                                let matching = cmds.commands.iter().filter(|cmd| {
-                                    cmd.character.eq(&event.code)
-                                }).collect::<Vec<&Command>>();
-                                if matching.len() == 0 {
-                                    print(format!("Invalid key: {:?}", event.code))
-                                        .unwrap();
-                                    continue;
-                                } else {
-                                    key = matching.get(0).unwrap().key.clone();
+                                match event.code {
+                                    KeyCode::Char('g') => {
+                                        key = String::from("Home");
+                                    },
+                                    KeyCode::Char('h') => {
+                                        key = String::from("Left");
+                                    },
+                                    KeyCode::Char('H') => {
+                                        key = String::from("Rev");
+                                    },
+                                    KeyCode::Char('i') => {
+                                        key = String::from("KeyboardMode");
+                                    },
+                                    KeyCode::Char('I') => {
+                                        key = String::from("InstantReplay");
+                                    },
+                                    KeyCode::Char('j') => {
+                                        key = String::from("Down");
+                                    },
+                                    KeyCode::Char('J') => {
+                                        key = String::from("ChannelDown");
+                                    },
+                                    KeyCode::Char('k') => {
+                                        key = String::from("Up");
+                                    },
+                                    KeyCode::Char('K') => {
+                                        key = String::from("ChannelUp");
+                                    },
+                                    KeyCode::Char('L') => {
+                                        key = String::from("Fwd");
+                                    },
+                                    KeyCode::Char('l') => {
+                                        key = String::from("Right");
+                                    },
+                                    KeyCode::Char('m') => {
+                                        key = String::from("Mute");
+                                    },
+                                    KeyCode::Char('p') => {
+                                        key = String::from("PowerOn");
+                                    },
+                                    KeyCode::Char('P') => {
+                                        key = String::from("PowerOff");
+                                    },
+                                    KeyCode::Char('s') => {
+                                        key = String::from("Search");
+                                    },
+                                    KeyCode::Char('q') => {
+                                        key = String::from("Quit");
+                                    },
+                                    KeyCode::Char('Q') => {
+                                        key = String::from("HardQuit");
+                                    },
+                                    KeyCode::Char('v') => {
+                                        key = String::from("VolumeDown");
+                                    },
+                                    KeyCode::Char('V') => {
+                                        key = String::from("VolumeUp");
+                                    },
+                                    KeyCode::Char(' ') => {
+                                        key = String::from("Play");
+                                    },
+                                    KeyCode::Char('|') => {
+                                        key = String::from("Pause");
+                                    },
+                                    KeyCode::Char('?') => {
+                                        key = String::from("Help");
+                                    },
+                                    KeyCode::Char('*') => {
+                                        key = String::from("Info");
+                                    },
+                                    KeyCode::Enter => {
+                                        key = String::from("Select");
+                                    },
+                                    KeyCode::Down => {
+                                        key = String::from("Down");
+                                    },
+                                    KeyCode::Up => {
+                                        key = String::from("Up");
+                                    },
+                                    KeyCode::Left => {
+                                        key = String::from("Left");
+                                    },
+                                    KeyCode::Right => {
+                                        key = String::from("Right");
+                                    },
+                                    _ => {
+                                        print(
+                                            format!(
+                                                "KeyPusher: invalid key - {:?}",
+                                                event.code
+                                            )
+                                        ).unwrap();
+                                        continue;
+                                    },
                                 }
                             } else {
                                 match event.code {
@@ -183,12 +208,15 @@ fn main() -> CrosstermResult<()> {
                                         key = String::from("Enter");
                                     },
                                     KeyCode::Esc => {
-                                        print("Exiting keyboard mode")
-                                            .unwrap();
-                                        keyboard_mode = false;
-                                        continue;
+                                        key = String::from("ExitKeyboardMode");
                                     },
                                     _ => {
+                                        print(
+                                            format!(
+                                                "KeyPusher: invalid key - {:?}",
+                                                event.code
+                                            )
+                                        ).unwrap();
                                         continue;
                                     },
                                 }
@@ -198,16 +226,24 @@ fn main() -> CrosstermResult<()> {
                                     .unwrap();
                                 keyboard_mode = true;
                                 continue;
+                            } else if key.eq("ExitKeyboardMode") {
+                                print("Exiting keyboard mode")
+                                    .unwrap();
+                                keyboard_mode = false;
+                                continue;
                             }
                             print(String::from("KeyPusher: locking"))
                                 .unwrap();
                             let mut lock = keypusher_keys.lock().unwrap();
                             if key.eq("Quit") {
+                                print("KeyPusher: quitting").unwrap();
                                 (*lock).push(key);
                                 break;
-                            } else if key.eq("Help") {
-                                cmds.show_help();
-                                continue;
+                            } else if key.eq("HardQuit") {
+                                print("KeyPusher: quitting - sending hard quit")
+                                    .unwrap();
+                                (*lock).push(key);
+                                break;
                             } else {
                                 print(format!("KeyPusher: sending {}", key))
                                     .unwrap();
@@ -241,8 +277,36 @@ fn main() -> CrosstermResult<()> {
             if key.eq("Quit") {
                 break;
             }
-            print(format!("KeyReceiver: sending {}", key)).unwrap();
-            send(&args.ip, key);
+            let keypath = format!("/keypress/{}", key);
+            print(format!("KeyReceiver: sending {}", keypath)).unwrap();
+            match args.mode {
+                Mode::Connect(ref args) => {
+                    let url = format!("http://{}:8060{}", args.ip, keypath);
+                    let timeout = match args.timeout {
+                        Some(t) => t.clone(),
+                        None => 2000,
+                    };
+                    match Client::new().get(&url).timeout(
+                        Duration::from_millis(timeout)
+                    ).send() {
+                        Ok(_) => {
+                            print(format!("Complete: {}", url)).unwrap();
+                        },
+                        Err(e) => {
+                            print(format!("Error:    {} | {}", url, e)).unwrap();
+                        },
+                    }
+                },
+                Mode::Test(ref args) => {
+                    match args.delay {
+                        Some(delay) => {
+                            thread_sleep(Duration::from_millis(delay.to_owned()));
+                        },
+                        None => {},
+                    }
+                    print(format!("KeyReceiver: complete {}", keypath)).unwrap();
+                },
+            }
         }
     }
     print(String::from("Main: exiting")).unwrap();
